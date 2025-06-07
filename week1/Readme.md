@@ -680,6 +680,367 @@ void __attribute__((naked)) __attribute__((interrupt)) machine_timer_handler() {
 ![image](https://github.com/user-attachments/assets/5bc63d97-95db-4daf-ac6a-dcc52dd68378)
 ![image](https://github.com/user-attachments/assets/7eea83d2-828f-430f-b729-29207121be58)
 
+---
+##✅ Task 14. rv32imac vs rv32imc – What’s the “A”?
+
+<details>
+<summary><strong>Prompt Asked to ChatGPT</strong></summary>
+
+```
+Explain the ‘A’ (atomic) extension in rv32imac. What instructions are added and why are they useful?
+```
+
+</details>
+---
+<details>
+<summary>✅ Answer</summary>
+
+The 'A' extension stands for Atomic Instructions in the RISC-V ISA.
+
+It introduces instructions like:
+
+lr.w – Load Reserved (32-bit)
+
+sc.w – Store Conditional (32-bit)
+
+amoadd.w, amoswap.w, amoxor.w, amoand.w, etc.
+
+These are essential for:
+
+Lock-free data structures
+
+Spinlocks
+
+Multithreading support
+
+Operating system kernels
+
+These operations perform atomic read-modify-write sequences on shared memory, critical in concurrent environments.
+</details>
+---
+<details>
+<summary>📘 Example Usage</summary>
+
+assembly
+Copy
+Edit
+again:
+    lr.w t0, (a0)         # load-reserved from address in a0
+    addi t0, t0, 1        # increment
+    sc.w t1, t0, (a0)     # store-cond back
+    bnez t1, again        # retry if store failed
+This is a classic spinlock-safe increment, using atomic primitives.
+
+</details>
+---
+## ✅ Task 15: Atomic Test Program
+
+<details>
+<summary><strong>Prompt Asked to ChatGPT</strong></summary>
+
+```
+
+Provide a two-thread mutex example (pseudo-threads in main) using lr/sc on RV32.
+
+````
+
+</details>
+---
+
+<details>
+<summary>🛠️ Spin-lock Mutex Implementation in C with Inline Assembly (Click to expand)</summary>
+
+```c
+#include <stdio.h>
+#include <stdatomic.h>
+
+volatile int lock = 0;
+
+void acquire_lock(volatile int *lock) {
+    int tmp;
+    asm volatile (
+        "1: lr.w %0, %1\n"        // Load-reserved
+        "   bnez %0, 1b\n"        // If lock != 0, retry
+        "   li %0, 1\n"
+        "   sc.w %0, %0, %1\n"    // Store-conditional
+        "   bnez %0, 1b\n"        // Retry if store failed
+        : "=&r" (tmp), "+A" (*lock)
+        :
+        : "memory"
+    );
+}
+
+void release_lock(volatile int *lock) {
+    *lock = 0;
+}
+
+void thread_func(const char *name, volatile int *lock) {
+    printf("%s: Waiting to acquire lock...\n", name);
+    acquire_lock(lock);
+    printf("%s: Lock acquired! Critical section...\n", name);
+    // Critical section
+    for (volatile int i = 0; i < 1000000; i++);
+    printf("%s: Releasing lock.\n", name);
+    release_lock(lock);
+}
+
+int main() {
+    // Pseudo-thread 1
+    thread_func("Thread 1", &lock);
+
+    // Pseudo-thread 2
+    thread_func("Thread 2", &lock);
+
+    return 0;
+}
+````
+
+</details>
+
+<details>
+<summary>🧾 Explanation (Click to expand)</summary>
+
+* Uses **RISC-V atomic instructions** `lr.w` (load-reserved) and `sc.w` (store-conditional) via inline assembly to implement a spin-lock.
+* `acquire_lock()` tries to set the lock to 1 atomically:
+
+  * Loads the current lock value with `lr.w`.
+  * If the lock is already held (non-zero), it retries.
+  * Attempts to store `1` with `sc.w`, which succeeds only if no other store happened since the load.
+* `release_lock()` simply sets the lock to 0.
+* In `main()`, two **pseudo-threads** sequentially attempt to acquire and release the lock, simulating concurrent access.
+* This example shows how atomic instructions support **mutual exclusion** without disabling interrupts or using OS primitives.
+* Useful for bare-metal or OS kernel synchronization on RV32IMAC processors.
+
+</details>
+
+---
+
+### 🖼️ Output Example
+
+```
+Thread 1: Waiting to acquire lock...
+Thread 1: Lock acquired! Critical section...
+Thread 1: Releasing lock.
+Thread 2: Waiting to acquire lock...
+Thread 2: Lock acquired! Critical section...
+Thread 2: Releasing lock.
+```
+
+---
+
+### 🖼️ Outputs
+![image](https://github.com/user-attachments/assets/39a4bb3a-6c38-4289-af18-1e74ec1aef49)
+
+---
+
+## ✅ Task 16: Using Newlib printf Without an OS
+
+<details>
+<summary><strong>Prompt Asked to ChatGPT</strong></summary>
+
+```
+
+How do I retarget \_write so that printf sends bytes to my memory-mapped UART?
+
+````
+
+</details>
+---
+
+<details>
+<summary>🛠️ Retargeting _write for UART Output (Click to expand)</summary>
+
+```c
+#include <unistd.h>
+
+// Define your UART transmit register address (example)
+#define UART_TX (*(volatile char*)0x10000000)
+
+int _write(int fd, char *buf, int len) {
+    (void)fd; // File descriptor unused
+
+    for (int i = 0; i < len; i++) {
+        // Wait for UART ready if needed (depends on hardware)
+        UART_TX = buf[i];    // Send byte to UART TX register
+    }
+    return len;
+}
+````
+
+* Compile your program with:
+
+```bash
+riscv32-unknown-elf-gcc -nostartfiles -o hello.elf hello.c syscalls.c
+```
+
+* This replaces the default `_write` syscall used by `printf` so it outputs bytes to your UART hardware.
+
+</details>
+
+<details>
+<summary>🧾 Explanation (Click to expand)</summary>
+
+* The `printf` function in Newlib ultimately calls `_write` to output characters.
+* By default, `_write` expects an OS to handle system calls, but in bare-metal environments, you must provide your own.
+* Implementing `_write` to loop over the buffer and send each character to the **memory-mapped UART transmit register** enables `printf` to work without an OS.
+* Using `-nostartfiles` disables standard startup files, allowing you to provide custom system call implementations in `syscalls.c`.
+* This method is common in embedded bare-metal programming to get console output over UART.
+
+</details>
+
+---
+
+### 🖼️ Example Output
+
+```
+Hello, RISC-V!
+```
+
+(Output appears on UART serial terminal connected to your hardware/emulator.)
+
+---
+
+### 🖼️ (Optional) Diagram or UART Pinout Illustration
+
+![image](https://github.com/user-attachments/assets/eabac2fc-cf3e-481b-8df0-d25aab220b39)
+
+![image](https://github.com/user-attachments/assets/a5afed11-f599-4c25-9fd3-29c8e0f2f0b6)
+![image](https://github.com/user-attachments/assets/af3340dc-261e-4aab-927d-9d46185f0112)
+![image](https://github.com/user-attachments/assets/a5f1f8eb-d575-41cf-8908-5e95da86fa07)
+
+---
+
+## ✅ Task 17: Endianness & Struct Packing
+
+<details>
+<summary><strong>Prompt Asked to ChatGPT</strong></summary>
+
+```
+
+Is RV32 little-endian by default? Show me how to verify byte ordering with a union trick in C.
+
+````
+
+</details>
+---
+
+<details>
+<summary>🛠️ Code to Verify Endianness Using a Union (Click to expand)</summary>
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+
+int main() {
+    union {
+        uint32_t value;
+        uint8_t bytes[4];
+    } test;
+
+    test.value = 0x01020304;
+
+    printf("Bytes: %02x %02x %02x %02x\n",
+           test.bytes[0], test.bytes[1], test.bytes[2], test.bytes[3]);
+
+    if (test.bytes[0] == 0x04) {
+        printf("System is Little Endian.\n");
+    } else if (test.bytes[0] == 0x01) {
+        printf("System is Big Endian.\n");
+    } else {
+        printf("Unknown Endianness.\n");
+    }
+
+    return 0;
+}
+````
+
+</details>
+
+<details>
+<summary>🧾 Explanation (Click to expand)</summary>
+
+* RV32 **is little-endian by default**, meaning the least significant byte is stored at the lowest memory address.
+* The union overlays a 32-bit integer with a 4-byte array.
+* Assigning `0x01020304` to the integer and printing the individual bytes shows the byte order.
+* On little-endian systems, the bytes print as `04 03 02 01`.
+* On big-endian systems, bytes print as `01 02 03 04`.
+* This technique is a simple, portable way to verify endianness at runtime.
+
+</details>
+
+---
+
+### 🖼️ Sample Output
+
+```
+Bytes: 04 03 02 01
+System is Little Endian.
+```
+
+---
+
+# RISC-V Cross-Compilation & Related Tasks - Summary WEEK -1
+
+This repository contains solutions and explanations for various RISC-V related programming and toolchain tasks, focusing on cross-compilation, assembly, disassembly, atomic operations, system calls, and architecture-specific topics.
+
+---
+
+## ✅ Summary of Completed Tasks
+
+1. **Minimal RISC-V “Hello, World” C Program**
+   - Cross-compiled for RV32IMC using:
+     ```bash
+     riscv32-unknown-elf-gcc -march=rv32imc -mabi=ilp32 -o hello.elf hello.c
+     ```
+   - Verified ELF file type with `file hello.elf`.
+
+2. **Generating Assembly (.s) from C**
+   - Used `-S` flag to generate `hello.s`.
+   - Explained function prologue/epilogue instructions (`addi sp, sp, -16`, `sw ra, 12(sp)`, etc.).
+
+3. **Hex Dump & Disassembly**
+   - Disassembled ELF using:
+     ```bash
+     riscv32-unknown-elf-objdump -d hello.elf > hello.dump
+     ```
+   - Created raw hex file:
+     ```bash
+     riscv32-unknown-elf-objcopy -O ihex hello.elf hello.hex
+     ```
+   - Explained disassembly columns: address, opcode, mnemonic, operands.
+
+4. **Atomic Extension ‘A’ in RV32IMAC**
+   - Explained atomic instructions: `lr.w`, `sc.w`, `amoadd.w`, etc.
+   - Highlighted their use in lock-free data structures and OS kernels.
+
+5. **Atomic Test Program (Spin-lock Mutex)**
+   - Provided C code with inline RISC-V assembly using `lr.w` and `sc.w` to implement a spin-lock mutex.
+   - Demonstrated pseudo-thread locking in main function.
+
+6. **Using Newlib printf Without an OS**
+   - Retargeted `_write` syscall to send bytes to a memory-mapped UART register.
+   - Enabled `printf` output on bare-metal hardware by linking with custom `syscalls.c`.
+
+7. **Endianness & Struct Packing**
+   - Verified that RV32 is little-endian by default using a union trick in C.
+   - Printed byte order of a 32-bit value to determine system endianness.
+
+---
+
+## ⚡ Key Takeaways
+
+- **Cross-compiling** for RV32 requires proper GCC multilib support and correct flags (`-march=rv32imc`, `-mabi=ilp32`).
+- Generating assembly and understanding function prologue/epilogue is essential for low-level debugging.
+- Disassembling ELF files with `objdump` helps analyze compiled instructions and memory layout.
+- The atomic extension provides crucial synchronization primitives for concurrency on RISC-V.
+- Retargeting standard library syscalls enables `printf` and other I/O without a full OS.
+- Endianness affects how multi-byte data is stored and interpreted, impacting low-level data handling.
+
+---
+
+This collection of tasks provides a foundational workflow for embedded development on RISC-V processors, covering everything from toolchain setup to hardware-aware programming.
+
+---
 
 
 
