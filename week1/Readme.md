@@ -681,68 +681,72 @@ void __attribute__((naked)) __attribute__((interrupt)) machine_timer_handler() {
 ![image](https://github.com/user-attachments/assets/7eea83d2-828f-430f-b729-29207121be58)
 
 ---
-##✅ Task 14. rv32imac vs rv32imc – What’s the “A”?
+Here is the **reformatted README file** for **Task 14** and **Task 15** following your requested structure and format:
+
+---
+## ✅ Task 14: rv32imac vs rv32imc – What’s the “A”?
 
 <details>
 <summary><strong>Prompt Asked to ChatGPT</strong></summary>
 
 ```
+
 Explain the ‘A’ (atomic) extension in rv32imac. What instructions are added and why are they useful?
-```
+
+````
 
 </details>
 ---
+
 <details>
-<summary>✅ Answer</summary>
+<summary>✅ Answer (Click to expand)</summary>
 
-The 'A' extension stands for Atomic Instructions in the RISC-V ISA.
+The **'A' extension** in RISC-V adds **atomic instructions** for handling shared memory safely in concurrent environments.
 
-It introduces instructions like:
+### Key Instructions:
+- `lr.w` – Load Reserved
+- `sc.w` – Store Conditional
+- `amoadd.w`, `amoswap.w`, `amoxor.w`, `amoand.w`, etc.
 
-lr.w – Load Reserved (32-bit)
+### Why it matters:
+- Enables **lock-free data structures**
+- Allows implementation of **spinlocks**
+- Crucial for **multithreading** and **OS kernel** synchronization
+- Ensures **atomic read-modify-write** operations on memory
 
-sc.w – Store Conditional (32-bit)
-
-amoadd.w, amoswap.w, amoxor.w, amoand.w, etc.
-
-These are essential for:
-
-Lock-free data structures
-
-Spinlocks
-
-Multithreading support
-
-Operating system kernels
-
-These operations perform atomic read-modify-write sequences on shared memory, critical in concurrent environments.
 </details>
----
-<details>
-<summary>📘 Example Usage</summary>
 
-assembly
-Copy
-Edit
+<details>
+<summary>📘 Example Usage (Click to expand)</summary>
+
+```assembly
 again:
     lr.w t0, (a0)         # load-reserved from address in a0
     addi t0, t0, 1        # increment
     sc.w t1, t0, (a0)     # store-cond back
     bnez t1, again        # retry if store failed
-This is a classic spinlock-safe increment, using atomic primitives.
+````
+
+This pattern is used to **safely increment** a shared memory location using atomic primitives.
 
 </details>
+
 ---
+
+### 🖼️ Output Diagram (Optional)
+
+*Insert a diagram showing LR/SC handshake and memory consistency if needed.*
+
+---
+
 ## ✅ Task 15: Atomic Test Program
 
 <details>
 <summary><strong>Prompt Asked to ChatGPT</strong></summary>
 
 ```
-
 Provide a two-thread mutex example (pseudo-threads in main) using lr/sc on RV32.
-
-````
+```
 
 </details>
 ---
@@ -759,11 +763,11 @@ volatile int lock = 0;
 void acquire_lock(volatile int *lock) {
     int tmp;
     asm volatile (
-        "1: lr.w %0, %1\n"        // Load-reserved
-        "   bnez %0, 1b\n"        // If lock != 0, retry
+        "1: lr.w %0, %1\n"
+        "   bnez %0, 1b\n"
         "   li %0, 1\n"
-        "   sc.w %0, %0, %1\n"    // Store-conditional
-        "   bnez %0, 1b\n"        // Retry if store failed
+        "   sc.w %0, %0, %1\n"
+        "   bnez %0, 1b\n"
         : "=&r" (tmp), "+A" (*lock)
         :
         : "memory"
@@ -778,44 +782,38 @@ void thread_func(const char *name, volatile int *lock) {
     printf("%s: Waiting to acquire lock...\n", name);
     acquire_lock(lock);
     printf("%s: Lock acquired! Critical section...\n", name);
-    // Critical section
-    for (volatile int i = 0; i < 1000000; i++);
+    for (volatile int i = 0; i < 1000000; i++); // simulate work
     printf("%s: Releasing lock.\n", name);
     release_lock(lock);
 }
 
 int main() {
-    // Pseudo-thread 1
     thread_func("Thread 1", &lock);
-
-    // Pseudo-thread 2
     thread_func("Thread 2", &lock);
-
     return 0;
 }
-````
+```
 
 </details>
 
 <details>
 <summary>🧾 Explanation (Click to expand)</summary>
 
-* Uses **RISC-V atomic instructions** `lr.w` (load-reserved) and `sc.w` (store-conditional) via inline assembly to implement a spin-lock.
-* `acquire_lock()` tries to set the lock to 1 atomically:
+* Implements a **spin-lock mutex** using RISC-V `lr.w` / `sc.w` instructions.
+* `acquire_lock()`:
 
-  * Loads the current lock value with `lr.w`.
-  * If the lock is already held (non-zero), it retries.
-  * Attempts to store `1` with `sc.w`, which succeeds only if no other store happened since the load.
-* `release_lock()` simply sets the lock to 0.
-* In `main()`, two **pseudo-threads** sequentially attempt to acquire and release the lock, simulating concurrent access.
-* This example shows how atomic instructions support **mutual exclusion** without disabling interrupts or using OS primitives.
-* Useful for bare-metal or OS kernel synchronization on RV32IMAC processors.
+  * Performs `lr.w` to read the lock state.
+  * If already locked, it retries.
+  * Sets the lock with `sc.w`, which only succeeds if no one else changed the value.
+* `release_lock()` resets the lock to `0`.
+* Simulates two pseudo-threads in main, sequentially acquiring and releasing the lock.
+* Demonstrates **bare-metal synchronization** without OS support.
 
 </details>
 
 ---
 
-### 🖼️ Output Example
+### 🖼️ Sample Output
 
 ```
 Thread 1: Waiting to acquire lock...
@@ -828,10 +826,12 @@ Thread 2: Releasing lock.
 
 ---
 
-### 🖼️ Outputs
+### 🖼️ Output Images
+
 ![image](https://github.com/user-attachments/assets/39a4bb3a-6c38-4289-af18-1e74ec1aef49)
 
 ---
+
 
 ## ✅ Task 16: Using Newlib printf Without an OS
 
